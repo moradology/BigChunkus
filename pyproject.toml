@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name="bigchunkus"
+description="Lazy chunk mapping for distributed processing of NDArray formats (zarr, netcdf)"
+classifiers=[
+        "Intended Audience :: Developers",
+        "Intended Audience :: Information Technology",
+        "Intended Audience :: Science/Research",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "License :: OSI Approved :: MIT License",
+    ]
+keywords=["virtualenv", "dependencies"]
+authors=[{ name = "Nathan Zimmerman", email = "npzimmerman@gmail.com"}]
+license= { text = "MIT" }
+requires-python=">=3.7"
+dependencies = [
+    "xarray>=2024.06.0",
+    "kerchunk>=0.2.5",
+    "h5netcdf",
+    "numpy>=2.0.0",
+]
+dynamic = ["version", "readme"]
+
+[project.urls]
+homepage = "https://github.com/moradology/bigchunkus"
+repository = "https://github.com/moradology/bigchunkus.git"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0",
+       "pytest-cov>=4.1.0"]
+lint = ["black>=23.9.1",
+        "isort>=5.13.0",
+        "flake8>=7.0.0",
+        "Flake8-pyproject>=1.2.3",
+        "mypy>=1.8.0",
+        "pre-commit>=3.4.0",
+        "pytest>=8.0.0",
+        "pytest-cov>=4.1.0",
+        "tox>=4.11.3"]
+
+[tool.setuptools.dynamic]
+version = { attr = "bigchunkus.version.__version__" }
+readme = {file = ["README.md"], content-type = "text/markdown"}
+
+[tool.setuptools.package-data]
+bigchunkus = ["*.typed"]
+
+[tool.setuptools.packages.find]
+include = ["bigchunkus*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+addopts = "-sv --cov bigchunkus --cov-report xml --cov-report term-missing  --cov-fail-under 60"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+known_first_party = "bigchunkus"
+known_third_party = []
+default_section = "THIRDPARTY"
+
+[tool.flake8]
+ignore = ["E501", "W503"]
+select = ["C","E","F","W","B","B950"]
+exclude = ["tests", ".venv", ".tox", ".git", ".mypy_cache"]
+max-line-length = 100
