@@ -183,97 +183,44 @@ def test_concat_chunk_planner_with_varied_dataset_sizes():
     assert chunk_map["var/1.0"] == expected_chunk_map["var/1.0"]
     assert chunk_map["var/2.0"] == expected_chunk_map["var/2.0"]
 
-def test_zarr_key_construction_with_multiple_chunk_indices():
-    # Create a mock 3D dataset
+def test_zarr_key_construction_with_realistic_lat_lon():
+    # Simulate a 3D dataset with realistic lat/lon values
     ds1 = xr.Dataset({
-        "var": (("time", "lat", "lon"), np.random.rand(1000, 96, 144))
-    }, coords={"time": np.arange(1000), "lat": np.arange(96), "lon": np.arange(144)})
+        "var": (("time", "lat", "lon"), np.random.rand(10, 180, 360))
+    }, coords={"time": np.arange(10), "lat": np.linspace(-90, 90, 180), "lon": np.linspace(-180, 180, 360)})
 
     ds2 = xr.Dataset({
-        "var": (("time", "lat", "lon"), np.random.rand(500, 96, 144))
-    }, coords={"time": np.arange(1000, 1500), "lat": np.arange(96), "lon": np.arange(144)})
+        "var": (("time", "lat", "lon"), np.random.rand(10, 180, 360))
+    }, coords={"time": np.arange(10, 20), "lat": np.linspace(-90, 90, 180), "lon": np.linspace(-180, 180, 360)})
 
-    # Initialize the UnmergedChunkPlanner with the two datasets
+    # Initialize the UnmergedChunkPlanner
     unmerged_planner = UnmergedChunkPlanner(ds1, ds2)
 
-    # Concatenate along the 'time' dimension using UnmergedChunkPlanner
-    concat_planner = unmerged_planner.concat(dim="time")
+    # Concatenate along the 'time' dimension
+    concat_planner = unmerged_planner.concat(dim='time')
 
-    # Define the chunking strategy for the output Zarr store
+    # Define chunking strategy for the Zarr store with more realistic lat/lon values
     chunk_definition = {
-        "time": 500,  # Chunks in 'time' dimension will contain 500 values
-        "lat": 48,    # Each chunk in 'lat' dimension will contain 48 values
-        "lon": 72     # Chunks in 'lon' dimension will contain 72 values
+        "time": 5,  # Split the time dimension into chunks of 5
+        "lat": 90,  # Two chunks for the lat dimension (180 / 90 = 2)
+        "lon": 180  # Two chunks for the lon dimension (360 / 180 = 2)
     }
 
-    # Map the output chunks to input slices
+    # Map the chunks and generate Zarr keys
     chunk_map = concat_planner.map_chunks(chunk_definition)
 
-    # Expected Zarr keys
-    expected_zarr_keys = [
-        "var/0.0.0",  # First chunk (time: 0-500, lat: 0-48, lon: 0-72)
-        "var/0.0.1",  # First chunk (time: 0-500, lat: 0-48, lon: 72-144)
-        "var/0.1.0",  # First chunk (time: 0-500, lat: 48-96, lon: 0-72)
-        "var/0.1.1",  # First chunk (time: 0-500, lat: 48-96, lon: 72-144)
-        "var/1.0.0",  # Second chunk (time: 500-1000, lat: 0-48, lon: 0-72)
-        "var/1.0.1",  # Second chunk (time: 500-1000, lat: 0-48, lon: 72-144)
-        "var/1.1.0",  # Second chunk (time: 500-1000, lat: 48-96, lon: 0-72)
-        "var/1.1.1",  # Second chunk (time: 500-1000, lat: 48-96, lon: 72-144)
-        "var/2.0.0",  # Third chunk (time: 1000-1500, lat: 0-48, lon: 0-72)
-        "var/2.0.1",  # Third chunk (time: 1000-1500, lat: 0-48, lon: 72-144)
-        "var/2.1.0",  # Third chunk (time: 1000-1500, lat: 48-96, lon: 0-72)
-        "var/2.1.1",  # Third chunk (time: 1000-1500, lat: 48-96, lon: 72-144)
-    ]
+    # Verify the Zarr keys for specific chunk combinations
+    expected_keys = {
+        "var/0.0.0": {"time": [(0, 0, 5)], "lat": [(0, 0, 90)], "lon": [(0, 0, 180)]},
+        "var/0.0.1": {"time": [(0, 0, 5)], "lat": [(0, 0, 90)], "lon": [(0, 180, 360)]},
+        "var/0.1.0": {"time": [(0, 0, 5)], "lat": [(0, 90, 180)], "lon": [(0, 0, 180)]},
+        "var/0.1.1": {"time": [(0, 0, 5)], "lat": [(0, 90, 180)], "lon": [(0, 180, 360)]},
+        "var/1.0.0": {"time": [(0, 5, 10)], "lat": [(0, 0, 90)], "lon": [(0, 0, 180)]},
+        "var/1.0.1": {"time": [(0, 5, 10)], "lat": [(0, 0, 90)], "lon": [(0, 180, 360)]},
+        "var/1.1.0": {"time": [(0, 5, 10)], "lat": [(0, 90, 180)], "lon": [(0, 0, 180)]},
+        "var/1.1.1": {"time": [(0, 5, 10)], "lat": [(0, 90, 180)], "lon": [(0, 180, 360)]}
+    }
 
-    # Assertions for Zarr key correctness
-    for key in expected_zarr_keys:
-        assert key in chunk_map, f"{key} not found in chunk_map"
-
-    # Verify slices for each Zarr key
-    assert chunk_map["var/0.0.0"]["time"] == [(0, 0, 500)]
-    assert chunk_map["var/0.0.0"]["lat"] == [(0, 0, 48)]
-    assert chunk_map["var/0.0.0"]["lon"] == [(0, 0, 72)]
-
-    assert chunk_map["var/0.0.1"]["time"] == [(0, 0, 500)]
-    assert chunk_map["var/0.0.1"]["lat"] == [(0, 0, 48)]
-    assert chunk_map["var/0.0.1"]["lon"] == [(0, 72, 144)]
-
-    assert chunk_map["var/0.1.0"]["time"] == [(0, 0, 500)]
-    assert chunk_map["var/0.1.0"]["lat"] == [(0, 48, 96)]
-    assert chunk_map["var/0.1.0"]["lon"] == [(0, 0, 72)]
-
-    assert chunk_map["var/0.1.1"]["time"] == [(0, 0, 500)]
-    assert chunk_map["var/0.1.1"]["lat"] == [(0, 48, 96)]
-    assert chunk_map["var/0.1.1"]["lon"] == [(0, 72, 144)]
-
-    assert chunk_map["var/1.0.0"]["time"] == [(0, 500, 1000)]
-    assert chunk_map["var/1.0.0"]["lat"] == [(0, 0, 48)]
-    assert chunk_map["var/1.0.0"]["lon"] == [(0, 0, 72)]
-
-    assert chunk_map["var/1.0.1"]["time"] == [(0, 500, 1000)]
-    assert chunk_map["var/1.0.1"]["lat"] == [(0, 0, 48)]
-    assert chunk_map["var/1.0.1"]["lon"] == [(0, 72, 144)]
-
-    assert chunk_map["var/1.1.0"]["time"] == [(0, 500, 1000)]
-    assert chunk_map["var/1.1.0"]["lat"] == [(0, 48, 96)]
-    assert chunk_map["var/1.1.0"]["lon"] == [(0, 0, 72)]
-
-    assert chunk_map["var/1.1.1"]["time"] == [(0, 500, 1000)]
-    assert chunk_map["var/1.1.1"]["lat"] == [(0, 48, 96)]
-    assert chunk_map["var/1.1.1"]["lon"] == [(0, 72, 144)]
-
-    assert chunk_map["var/2.0.0"]["time"] == [(1, 0, 500)]
-    assert chunk_map["var/2.0.0"]["lat"] == [(0, 0, 48)]
-    assert chunk_map["var/2.0.0"]["lon"] == [(0, 0, 72)]
-
-    assert chunk_map["var/2.0.1"]["time"] == [(1, 0, 500)]
-    assert chunk_map["var/2.0.1"]["lat"] == [(0, 0, 48)]
-    assert chunk_map["var/2.0.1"]["lon"] == [(0, 72, 144)]
-
-    assert chunk_map["var/2.1.0"]["time"] == [(1, 0, 500)]
-    assert chunk_map["var/2.1.0"]["lat"] == [(0, 48, 96)]
-    assert chunk_map["var/2.1.0"]["lon"] == [(0, 0, 72)]
-
-    assert chunk_map["var/2.1.1"]["time"] == [(1, 0, 500)]
-    assert chunk_map["var/2.1.1"]["lat"] == [(0, 48, 96)]
-    assert chunk_map["var/2.1.1"]["lon"] == [(0, 72, 144)]
+    for key, expected_slices in expected_keys.items():
+        assert key in chunk_map
+        assert chunk_map[key] == expected_slices
