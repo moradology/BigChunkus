@@ -40,72 +40,87 @@ class UnmergedChunkPlanner(ChunkPlanner):
             offsets.append(current_offset)
             current_offset = end
 
-        return ConcatChunkPlanner(self.input_datasets, merged_dataset, concat_dim_ranges, offsets)
-
+        # Pass the concatenated dimension name to ConcatChunkPlanner
+        return ConcatChunkPlanner(self.input_datasets, merged_dataset, concat_dim_ranges, offsets, concat_dim_name=dim)
+    
 
     def map_chunks(self, chunk_definition: Dict[str, int]) -> dict:
         raise ValueError("Multiple datasets without a defined merge strategy! Please use a merge method first.")
 
-
 class ConcatChunkPlanner(ChunkPlanner):
-    def __init__(self, source_datasets: List[xr.Dataset], merged_dataset: xr.Dataset, concat_dim_ranges: List[Tuple[int, int]], offsets: List[int]):
+    def __init__(self, source_datasets: List[xr.Dataset], merged_dataset: xr.Dataset, concat_dim_ranges: List[Tuple[int, int]], offsets: List[int], concat_dim_name: str):
         self.source_datasets = source_datasets
         self.merged_dataset = merged_dataset
         self.concat_dim_ranges = concat_dim_ranges
         self.offsets = offsets
+        self.concat_dim_name = concat_dim_name  # This is the dimension we're concatenating along
 
-    def generate_zarr_key(self, variable_name: str, chunk_indices: List[int]) -> str:
-        return f"{variable_name}/" + ".".join(map(str, chunk_indices))
+    def generate_zarr_key(self, variable_name: str, chunk_indices: List[int], chunk_definition: Dict[str, int]) -> str:
+        """Generate the Zarr key for a variable and its chunk indices"""
+        print(f"variable_name: {variable_name}, chunk_indices: {chunk_indices}")
+        adjusted_indices = [ci // chunk_definition[dim] if dim == self.concat_dim_name else ci for ci, dim in zip(chunk_indices, self.merged_dataset.dims)]
+        print(f"adjusted_indices: {adjusted_indices}\n")
+        return f"{variable_name}/" + ".".join(map(str, adjusted_indices))
 
     def map_chunks(self, chunk_definition: Dict[str, int]) -> dict:
+        """Map output chunks to input slices without duplication"""
         chunk_map = {}
 
         for var_name in self.merged_dataset.data_vars:
-            var_chunk_map = {}
-
+            # Calculate chunk indices for each dimension
             chunk_indices_list = []
             for dim, chunk_size in chunk_definition.items():
                 chunk_indices = list(range(0, self.merged_dataset.sizes[dim], chunk_size))
                 chunk_indices_list.append(chunk_indices)
 
+            # Iterate through combinations of chunk indices
             for chunk_indices in itertools.product(*chunk_indices_list):
-                zarr_key = self.generate_zarr_key(var_name, chunk_indices)
+                zarr_key = self.generate_zarr_key(var_name, chunk_indices, chunk_definition)
                 chunk_slices = {}
 
+                # Process each dimension only once per chunk
+                processed_dims = set()
+
+                # Iterate over each dimension and compute chunk slices
                 for dim, chunk_index in zip(chunk_definition.keys(), chunk_indices):
+                    if dim in processed_dims:
+                        continue  # Skip already processed dimensions
+
                     dim_chunk_slices = []
-                    current_chunk_start = chunk_index * chunk_definition[dim]
+                    current_chunk_start = chunk_index
                     current_chunk_end = min(current_chunk_start + chunk_definition[dim], self.merged_dataset.sizes[dim])
 
-                    # Check if the dimension has been concatenated (spanning across datasets)
-                    is_concatenated_dim = any(
-                        start < current_chunk_end and end > current_chunk_start
-                        for start, end in self.concat_dim_ranges
-                    )
-
-                    if is_concatenated_dim:
+                    # Handle concatenated dimension
+                    if dim == self.concat_dim_name:
+                        print(f"\nHandling concatenated dimension '{dim}'")
                         for i, (start, end) in enumerate(self.concat_dim_ranges):
                             if end > current_chunk_start and start < current_chunk_end:
                                 slice_start = max(start, current_chunk_start) - start
                                 slice_end = min(end, current_chunk_end) - start
                                 slice_tuple = (i, slice_start, slice_end)
-                                if slice_tuple not in dim_chunk_slices:
-                                    dim_chunk_slices.append(slice_tuple)
+                                dim_chunk_slices.append(slice_tuple)
+
+                        chunk_key_index = current_chunk_start // chunk_definition[dim]
+                        dim_key = f"{dim}/{chunk_key_index}"
                     else:
-                        dim_chunk_slices.append((0, current_chunk_start, current_chunk_end))
+                        # Handle non-concatenated dimensions normally
+                        slice_tuple = (0, current_chunk_start, current_chunk_end)
+                        dim_chunk_slices.append(slice_tuple)
+                        dim_key = f"{dim}/{chunk_index}"
 
-                    chunk_slices[dim] = dim_chunk_slices
-
-                    # Also create a top-level key for the dimension, e.g., "time/0"
-                    dim_key = f"{dim}/{chunk_index}"
+                    # Add slices to the chunk map (avoid adding the same dimension slices multiple times)
                     if dim_key not in chunk_map:
                         chunk_map[dim_key] = dim_chunk_slices
                     else:
-                        chunk_map[dim_key].extend(dim_chunk_slices)
-                        chunk_map[dim_key] = list(set(chunk_map[dim_key]))  # Deduplicate entries
+                        # Only add new slices that haven't been processed yet
+                        chunk_map[dim_key].extend(
+                            [s for s in dim_chunk_slices if s not in chunk_map[dim_key]]
+                        )
 
-                var_chunk_map[zarr_key] = chunk_slices
+                    chunk_slices[dim] = dim_chunk_slices
+                    processed_dims.add(dim)  # Mark the dimension as processed
 
-            chunk_map[var_name] = var_chunk_map
+                # Assign Zarr key with correct chunk slices
+                chunk_map[zarr_key] = chunk_slices
 
         return chunk_map

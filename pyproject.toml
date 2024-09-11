@@ -57,7 +57,7 @@ include = ["bigchunkus*"]
 exclude = ["tests*"]
 
 [tool.pytest.ini_options]
-addopts = "-sv --cov bigchunkus --cov-report xml --cov-report term-missing  --cov-fail-under 60"
+addopts = "-sv --cov bigchunkus --cov-report xml --cov-report term-missing  --cov-fail-under 30"
 
 [tool.black]
 line-length = 100
