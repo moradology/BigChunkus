@@ -1,241 +1,72 @@
-from bigchunkus.zarr import extract_zarr_key_info, generate_zarr_keys, get_data_for_zarr_key
+import pytest
 
-import numpy as np
-import xarray as xr
+from bigchunkus.zarr import build_zarr_key_generator
 
-# ===================
-# Zarr key generation
-# ===================
+def test_generate_zarr_key_basic():
+    # Basic case with 2 dimensions
+    variable_name = "temperature"
+    chunk_indices = [25, 50]
+    chunk_definition = {"time": 10, "lat": 25}
+    variable_dims = ["time", "lat"]
 
-def test_single_variable_single_dimension_generation():
-    data = xr.Dataset({"var": (("x",), [1, 2, 3, 4, 5, 6])}, coords={"x": [0, 1, 2, 3, 4, 5]})
-    chunked_data = data.chunk({"x": 2})
-    zarr_keys = generate_zarr_keys(chunked_data)
-    assert zarr_keys == {
-        "var": ["var/0", "var/2", "var/4"]
-    }
+    expected_key = "temperature/2.2"
+    generate_zarr_key = build_zarr_key_generator(variable_name, chunk_definition, variable_dims)
+    assert generate_zarr_key(chunk_indices) == expected_key, \
+        "Basic case failed to generate correct Zarr key."
 
-def test_multiple_variables_single_dimension_generation():
-    data = xr.Dataset({
-        "var1": (("x",), [1, 2, 3, 4]),
-        "var2": (("x",), [5, 6, 7, 8])
-    }, coords={"x": [0, 1, 2, 3]})
-    chunked_data = data.chunk({"x": 2})
-    zarr_keys = generate_zarr_keys(chunked_data)
-    assert zarr_keys == {
-        "var1": ["var1/0", "var1/2"],
-        "var2": ["var2/0", "var2/2"]
-    }
+def test_generate_zarr_key_multi_dimensional():
+    # Multi-dimensional case with 3 dimensions
+    variable_name = "precipitation"
+    chunk_indices = [30, 100, 45]
+    chunk_definition = {"time": 10, "lat": 50, "lon": 50}
+    variable_dims = ["time", "lat", "lon"]
 
-def test_single_variable_multiple_dimensions_generation():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2], [3, 4], [5, 6], [7, 8]])
-    }, coords={"x": [0, 1, 2, 3], "y": [0, 1]})
-    chunked_data = data.chunk({"x": 2, "y": 1})
-    zarr_keys = generate_zarr_keys(chunked_data)
-    assert zarr_keys == {
-        "var": ["var/0.0", "var/0.1", "var/2.0", "var/2.1"]
-    }
+    expected_key = "precipitation/3.2.0"
+    generate_zarr_key = build_zarr_key_generator(variable_name, chunk_definition, variable_dims)
+    assert generate_zarr_key(chunk_indices) == expected_key, \
+        "Multi-dimensional case failed to generate correct Zarr key."
 
-def test_multiple_variables_multiple_dimensions_generation():
-    data = xr.Dataset({
-        "var1": (("x", "y"), [[1, 2], [3, 4], [5, 6], [7, 8]]),
-        "var2": (("x", "y"), [[8, 7], [6, 5], [4, 3], [2, 1]])
-    }, coords={"x": [0, 1, 2, 3], "y": [0, 1]})
-    chunked_data = data.chunk({"x": 2, "y": 1})
-    zarr_keys = generate_zarr_keys(chunked_data)
-    assert zarr_keys == {
-        "var1": ["var1/0.0", "var1/0.1", "var1/2.0", "var1/2.1"],
-        "var2": ["var2/0.0", "var2/0.1", "var2/2.0", "var2/2.1"]
-    }
+def test_generate_zarr_key_single_dimension():
+    # Single-dimensional case
+    variable_name = "pressure"
+    chunk_indices = [100]
+    chunk_definition = {"time": 25}
+    variable_dims = ["time"]
 
-def test_no_chunking_generation():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2], [3, 4], [5, 6], [7, 8]])
-    }, coords={"x": [0, 1, 2, 3], "y": [0, 1]})
-    # No chunking applied
-    zarr_keys = generate_zarr_keys(data)
-    assert zarr_keys == {
-        "var": ["var/0.0"]
-    }
+    expected_key = "pressure/4"
+    generate_zarr_key = build_zarr_key_generator(variable_name, chunk_definition, variable_dims)
+    assert generate_zarr_key(chunk_indices) == expected_key, \
+        "Single-dimensional case failed to generate correct Zarr key."
 
-def test_single_element_dimension_generation():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2]])
-    }, coords={"x": [0], "y": [0, 1]})
-    chunked_data = data.chunk({"x": 1, "y": 1})
-    zarr_keys = generate_zarr_keys(chunked_data)
-    assert zarr_keys == {
-        "var": ["var/0.0", "var/0.1"]
-    }
+def test_generate_zarr_key_exact_multiple():
+    # Case where chunk index is an exact multiple of chunk size
+    variable_name = "temperature"
+    chunk_indices = [20, 100]
+    chunk_definition = {"time": 10, "lat": 50}
+    variable_dims = ["time", "lat"]
 
-def test_non_uniform_chunk_sizes_generation():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    # Use a tuple for non-uniform chunking
-    chunked_data = data.chunk({"x": (1, 2), "y": 2})
-    zarr_keys = generate_zarr_keys(chunked_data)
-    assert zarr_keys == {
-        "var": ["var/0.0", "var/0.2", "var/1.0", "var/1.2"]
-    }
+    expected_key = "temperature/2.2"  # 20 // 10 = 2, 100 // 50 = 2
+    generate_zarr_key = build_zarr_key_generator(variable_name, chunk_definition, variable_dims)
+    assert generate_zarr_key(chunk_indices) == expected_key, \
+        "Exact multiple case failed to generate correct Zarr key."
 
-def test_empty_dataset_generation():
-    data = xr.Dataset()
-    zarr_keys = generate_zarr_keys(data)
-    assert zarr_keys == {}
+def test_generate_zarr_key_mismatched_dimensions():
+    # Mismatched chunk_indices and variable_dims lengths
+    variable_name = "wind"
+    chunk_indices = [10, 50]
+    chunk_definition = {"time": 10, "lat": 25, "lon": 50}
+    variable_dims = ["time", "lat", "lon"]
 
-# ========================
-# Zarr key data extraction
-# ========================
+    generate_zarr_key = build_zarr_key_generator(variable_name, chunk_definition, variable_dims)
+    with pytest.raises(ValueError):
+        generate_zarr_key(chunk_indices)
 
-def test_basic_case_with_uniform_chunking_extraction():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    chunked_data = data.chunk({"x": 2, "y": 2})
-    zarr_key = "var/0.0"
-    
-    chunk_indices, chunk_sizes, dimension_sizes = extract_zarr_key_info(zarr_key, chunked_data)
-    
-    assert chunk_indices == [0, 0]
-    assert chunk_sizes == [2, 2]
-    assert dimension_sizes == [3, 3]
+def test_build_zarr_generator_missing_dimension_in_chunk_definition():
+    # Missing dimension in the chunk definition
+    variable_name = "humidity"
+    chunk_indices = [30, 45]
+    chunk_definition = {"time": 10}  # Missing "lat" dimension
+    variable_dims = ["time", "lat"]
 
-def test_non_chunked_dataset_extraction():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    zarr_key = "var/0.0"
-    
-    chunk_indices, chunk_sizes, dimension_sizes = extract_zarr_key_info(zarr_key, data)
-    
-    assert chunk_indices == [0, 0]
-    assert chunk_sizes == [3, 3]  # Entire dimension is treated as one chunk
-    assert dimension_sizes == [3, 3]
-
-def test_non_uniform_chunking_extraction():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    chunked_data = data.chunk({"x": (1, 2), "y": 2})
-    zarr_key = "var/0.0"
-    
-    chunk_indices, chunk_sizes, dimension_sizes = extract_zarr_key_info(zarr_key, chunked_data)
-    
-    assert chunk_indices == [0, 0]
-    assert chunk_sizes == [1, 2]  # First chunk for x is 1, for y it's 2
-    assert dimension_sizes == [3, 3]
-
-def test_single_dimension_extraction():
-    data = xr.Dataset({
-        "var": ("x", [1, 2, 3, 4, 5])
-    }, coords={"x": [0, 1, 2, 3, 4]})
-    chunked_data = data.chunk({"x": 2})
-    zarr_key = "var/0"
-    
-    chunk_indices, chunk_sizes, dimension_sizes = extract_zarr_key_info(zarr_key, chunked_data)
-    
-    assert chunk_indices == [0]
-    assert chunk_sizes == [2]
-    assert dimension_sizes == [5]
-
-def test_small_final_chunk_extraction():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2], [3, 4], [5, 6]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1]})
-    chunked_data = data.chunk({"x": 2, "y": 2})
-    zarr_key = "var/1.0"  # Final chunk for x
-    
-    chunk_indices, chunk_sizes, dimension_sizes = extract_zarr_key_info(zarr_key, chunked_data)
-    
-    assert chunk_indices == [1, 0]
-    assert chunk_sizes == [1, 2]  # The final chunk in x is smaller (1 instead of 2)
-    assert dimension_sizes == [3, 2]
-
-def test_empty_dimension_extraction():
-    data = xr.Dataset({
-        "var": (("x", "y"), np.empty((0, 0)))
-    }, coords={"x": [], "y": []})
-    
-    zarr_key = "var/0.0"
-    
-    chunk_indices, chunk_sizes, dimension_sizes = extract_zarr_key_info(zarr_key, data)
-    
-    assert chunk_indices == [0, 0]
-    assert chunk_sizes == [0, 0]
-    assert dimension_sizes == [0, 0]
-
-# =======================
-# Get data using zarr key
-# =======================
-
-def test_basic_chunk_retrieval():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    chunked_data = data.chunk({"x": 2, "y": 2})
-    zarr_key = "var/0.0"
-    
-    data_chunk = get_data_for_zarr_key(chunked_data, zarr_key)
-    
-    expected = xr.DataArray([[1, 2], [4, 5]], dims=("x", "y"), coords={"x": [0, 1], "y": [0, 1]})
-    xr.testing.assert_equal(data_chunk, expected)
-
-def test_non_uniform_chunk_retrieval():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    chunked_data = data.chunk({"x": (1, 2), "y": 2})
-    zarr_key = "var/1.0"
-    
-    data_chunk = get_data_for_zarr_key(chunked_data, zarr_key)
-    
-    expected = xr.DataArray([[4, 5], [7, 8]], dims=("x", "y"), coords={"x": [1, 2], "y": [0, 1]})
-    xr.testing.assert_equal(data_chunk, expected)
-
-def test_final_chunk_retrieval():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2], [3, 4], [5, 6]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1]})
-    chunked_data = data.chunk({"x": 2, "y": 2})
-    zarr_key = "var/1.0"
-    
-    data_chunk = get_data_for_zarr_key(chunked_data, zarr_key)
-    
-    expected = xr.DataArray([[5, 6]], dims=("x", "y"), coords={"x": [2], "y": [0, 1]})
-    xr.testing.assert_equal(data_chunk, expected)
-
-def test_empty_dimension_retrieval():
-    data = xr.Dataset({
-        "var": (("x", "y"), np.empty((0, 0)))
-    }, coords={"x": [], "y": []})
-    zarr_key = "var/0.0"
-    
-    data_chunk = get_data_for_zarr_key(data, zarr_key)
-    
-    expected = xr.DataArray(np.empty((0, 0)), dims=("x", "y"), coords={"x": [], "y": []})
-    xr.testing.assert_equal(data_chunk, expected)
-
-def test_single_dimension_retrieval():
-    data = xr.Dataset({
-        "var": ("x", [1, 2, 3, 4, 5])
-    }, coords={"x": [0, 1, 2, 3, 4]})
-    chunked_data = data.chunk({"x": 2})
-    zarr_key = "var/1"
-    
-    data_chunk = get_data_for_zarr_key(chunked_data, zarr_key)
-    
-    expected = xr.DataArray([3, 4], dims=("x"), coords={"x": [2, 3]})
-    xr.testing.assert_equal(data_chunk, expected)
-
-def test_non_chunked_dataset_retrieval():
-    data = xr.Dataset({
-        "var": (("x", "y"), [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    }, coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    zarr_key = "var/0.0"
-    
-    data_chunk = get_data_for_zarr_key(data, zarr_key)
-    
-    expected = xr.DataArray([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dims=("x", "y"), coords={"x": [0, 1, 2], "y": [0, 1, 2]})
-    xr.testing.assert_equal(data_chunk, expected)
+    with pytest.raises(KeyError):
+        build_zarr_key_generator(variable_name, chunk_definition, variable_dims)
